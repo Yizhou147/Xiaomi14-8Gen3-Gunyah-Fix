@@ -141,7 +141,7 @@ jobs:
           case "${{ inputs.kernelsu_variant }}" in
             "Official")
               echo "添加 KernelSU Official..."
-              curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s "stable" || true
+              curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s "e6832ed548ada2fa16fcbd6c8e98bbd1868f4401" || true
               ;;
             "SukiSU")
               echo "添加 SukiSU..."
