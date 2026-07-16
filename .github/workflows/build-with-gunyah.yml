@@ -40,6 +40,10 @@ on:
         description: "启用 NTsync"
         type: boolean
         default: true
+      use_gunyah:
+        description: "应用 Gunyah 补丁"
+        type: boolean
+        default: true
 jobs:
   build-kernel:
     name: "Gunyah修复 + 构建内核"
@@ -180,6 +184,7 @@ jobs:
           echo "NTsync 源码补丁应用完成"
 
       - name: 应用 Gunyah 补丁
+        if: inputs.use_gunyah
         run: |
           cd ${{ env.KERNEL_ROOT }}/common
 
@@ -256,6 +261,11 @@ jobs:
             ensure_defconfig_value CONFIG_KSU y
             ensure_defconfig_value CONFIG_TMPFS_XATTR y
             ensure_defconfig_value CONFIG_TMPFS_POSIX_ACL y
+          fi
+
+          # Gunyah 跳过时设置默认值
+          if [ -z "$GUNYAH_PATCHED" ]; then
+            echo "GUNYAH_PATCHED=false" >> $GITHUB_ENV
           fi
 
           # NTsync 配置（仅在补丁已应用时）
