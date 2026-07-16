@@ -142,6 +142,14 @@ jobs:
             "Official")
               echo "添加 KernelSU Official..."
               curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s "e6832ed548ada2fa16fcbd6c8e98bbd1868f4401" || true
+              cd KernelSU
+              KSU_GIT_VERSION=$(git rev-list --count HEAD)
+              KSU_VERSION=$((30000 + KSU_GIT_VERSION))
+              echo "KSU_VERSION=$KSU_VERSION" >> $GITHUB_ENV
+              if [ -f "kernel/Kbuild" ]; then
+                sed -i "s/DKSU_VERSION=16/DKSU_VERSION=${KSU_VERSION}/" kernel/Kbuild
+              fi
+              cd ..
               ;;
             "SukiSU")
               echo "添加 SukiSU..."
