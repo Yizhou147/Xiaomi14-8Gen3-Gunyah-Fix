@@ -1,6 +1,8 @@
 name: Build Xiaomi 14 Kernel (SM8650)
 
 on:
+  push:
+    branches: [master, main]
   workflow_dispatch:
     inputs:
       kernel_version:
@@ -18,10 +20,10 @@ on:
         required: true
         type: choice
         options:
-          - SukiSU
           - Official
+          - SukiSU
           - None
-        default: SukiSU
+        default: Official
       apply_gunyah_patch:
         description: "应用 Gunyah 内存修复补丁（推荐开启）"
         required: false
@@ -30,14 +32,14 @@ on:
 
 jobs:
   build:
-    name: "Xiaomi14-SM8650-${{ inputs.kernel_version }}"
+    name: "Xiaomi14-SM8650-${{ github.event.inputs.kernel_version || '6.1' }}"
     runs-on: ubuntu-latest
     timeout-minutes: 120
 
     env:
-      KERNEL_VERSION: ${{ inputs.kernel_version }}
-      KSU_VARIANT: ${{ inputs.ksu_variant }}
-      APPLY_GUNYAH_PATCH: ${{ inputs.apply_gunyah_patch }}
+      KERNEL_VERSION: ${{ github.event.inputs.kernel_version || '6.1' }}
+      KSU_VARIANT: ${{ github.event.inputs.ksu_variant || 'Official' }}
+      APPLY_GUNYAH_PATCH: ${{ github.event.inputs.apply_gunyah_patch || 'true' }}
 
     steps:
       - name: 检出代码
@@ -51,7 +53,7 @@ jobs:
             libssl-dev libncurses-dev liblz4-tool zlib1g-dev libxml2-utils \
             rsync unzip gawk dos2unix zip gcc-aarch64-linux-gnu
           curl -fsSL https://storage.googleapis.com/git-repo-downloads/repo -o repo
-          chmod a+x repo
+          chmod +x repo
           sudo mv repo /usr/local/bin/repo
 
       - name: 配置 ccache
@@ -64,7 +66,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.ccache
-          key: xiaomi14-ccache-${{ runner.os }}-${{ inputs.kernel_version }}
+          key: xiaomi14-ccache-${{ runner.os }}-${{ env.KERNEL_VERSION }}
           restore-keys: |
             xiaomi14-ccache-${{ runner.os }}-
 
@@ -81,7 +83,7 @@ jobs:
           repo sync -c -j"$(nproc --all)" --no-tags --no-clone-bundle --force-sync
 
       - name: 应用 Gunyah 补丁
-        if: ${{ inputs.apply_gunyah_patch == true }}
+        if: env.APPLY_GUNYAH_PATCH == 'true'
         run: |
           cd kernel_workspace/kernel_platform/common
           for patch in ${{ github.workspace }}/patches/*.patch; do
@@ -95,7 +97,7 @@ jobs:
       - name: 设置 KernelSU
         run: |
           cd kernel_workspace/kernel_platform
-          case "${{ inputs.ksu_variant }}" in
+          case "${{ env.KSU_VARIANT }}" in
             "SukiSU")
               curl -fsSL https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/main/setup.sh -o setup.sh
               chmod +x setup.sh
@@ -117,7 +119,7 @@ jobs:
 
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- gki_defconfig
 
-          if [ "${{ inputs.apply_gunyah_patch }}" = "true" ]; then
+          if [ "${{ env.APPLY_GUNYAH_PATCH }}" = "true" ]; then
             echo "CONFIG_GUNYAH=y" >> .config
             echo "CONFIG_GUNYAH_PLATFORM_HOOKS=y" >> .config
             echo "CONFIG_GUNYAH_QCOM_PLATFORM=y" >> .config
@@ -151,23 +153,23 @@ jobs:
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
         with:
-          name: xiaomi14-sm8650-${{ inputs.kernel_version }}-${{ inputs.ksu_variant }}
+          name: xiaomi14-sm8650-${{ env.KERNEL_VERSION }}-${{ env.KSU_VARIANT }}
           path: output/
           retention-days: 7
 
       - name: 发布到 Releases
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ inputs.kernel_version }}-${{ inputs.ksu_variant }}-${{ github.run_number }}
-          name: "Xiaomi 14 Kernel ${{ inputs.kernel_version }} ${{ inputs.ksu_variant }}"
+          tag_name: v${{ env.KERNEL_VERSION }}-${{ env.KSU_VARIANT }}-${{ github.run_number }}
+          name: "Xiaomi 14 Kernel ${{ env.KERNEL_VERSION }} ${{ env.KSU_VARIANT }}"
           body: |
             ## Xiaomi 14 (SM8650) 内核
 
             **构建参数**:
-            - 内核版本: ${{ inputs.kernel_version }}
-            - KernelSU: ${{ inputs.ksu_variant }}
-            - Gunyah 修复: ${{ inputs.apply_gunyah_patch }}
+            - 内核版本: ${{ env.KERNEL_VERSION }}
+            - KernelSU: ${{ env.KSU_VARIANT }}
+            - Gunyah 修复: ${{ env.APPLY_GUNYAH_PATCH }}
 
             **修复内容**:
             - 修复骁龙8 Gen 3 (SM8650) 的 Gunyah 内存分配问题
