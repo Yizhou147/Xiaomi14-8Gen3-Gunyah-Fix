@@ -60,6 +60,19 @@ on:
           - Custom(自定义)
         default: Stable(标准)
 
+      # ==================== 虚拟化支持 ====================
+      virtualization_support:
+        description: "DroidSpaces 虚拟化支持 (567=槽位补丁)"
+        required: false
+        type: choice
+        options:
+          - "off"
+          - "on"
+          - "678"
+          - "123"
+          - "345"
+        default: "off"
+
       # ==================== Gunyah 修复 ====================
       use_gunyah:
         description: "应用 8 Gen 3 Gunyah VMID 修复"
@@ -155,6 +168,7 @@ jobs:
       supp_op: ${{ inputs.supp_op || false }}
       enable_susfs: ${{ !inputs.cancel_susfs }}
       use_gunyah: ${{ inputs.use_gunyah }}
+      virtualization_support: ${{ inputs.virtualization_support || 'off' }}
 
   get-ksu-manager:
     uses: ./.github/workflows/get-manager.yml
