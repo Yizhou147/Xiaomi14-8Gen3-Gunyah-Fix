@@ -20,10 +20,11 @@ on:
         required: true
         type: choice
         options:
-          - Official
           - SukiSU
+          - ReSukiSU
+          - Official
           - None
-        default: Official
+        default: ReSukiSU
       apply_gunyah_patch:
         description: "应用 Gunyah 内存修复补丁（推荐开启）"
         required: false
@@ -38,7 +39,7 @@ jobs:
 
     env:
       KERNEL_VERSION: ${{ github.event.inputs.kernel_version || '6.1' }}
-      KSU_VARIANT: ${{ github.event.inputs.ksu_variant || 'Official' }}
+      KSU_VARIANT: ${{ github.event.inputs.ksu_variant || 'ReSukiSU' }}
       APPLY_GUNYAH_PATCH: ${{ github.event.inputs.apply_gunyah_patch || 'true' }}
 
     steps:
@@ -70,22 +71,22 @@ jobs:
           restore-keys: |
             xiaomi14-ccache-${{ runner.os }}-
 
-      - name: 同步内核源码
+      - name: 同步 GKI 内核源码
         run: |
           git config --global user.name "builder"
           git config --global user.email "builder@users.noreply.github.com"
           mkdir -p kernel_workspace
           cd kernel_workspace
-          repo init -u https://github.com/Xiaomichael/kernel_manifest.git \
-            -b "refs/heads/oneplus/sm8650" \
-            -m "oneplus_12_b.xml" \
+          # 使用 Google 官方 GKI 内核源码
+          repo init -u https://android.googlesource.com/kernel/manifest \
+            -b "common-android${{ env.KERNEL_VERSION }}" \
             --depth=1
           repo sync -c -j"$(nproc --all)" --no-tags --no-clone-bundle --force-sync
 
       - name: 应用 Gunyah 补丁
         if: env.APPLY_GUNYAH_PATCH == 'true'
         run: |
-          cd kernel_workspace/kernel_platform/common
+          cd kernel_workspace/common
           for patch in ${{ github.workspace }}/patches/*.patch; do
             if [ -f "$patch" ]; then
               echo "应用补丁: $(basename "$patch")"
@@ -94,12 +95,20 @@ jobs:
             fi
           done
 
-      - name: 设置 KernelSU Official
-        if: env.KSU_VARIANT == 'Official'
+      - name: 设置 KernelSU
         run: |
-          cd kernel_workspace/kernel_platform
-          # 克隆 KernelSU 到内核目录
-          git clone --depth=1 https://github.com/tiann/KernelSU.git KernelSU
+          cd kernel_workspace
+          case "${{ env.KSU_VARIANT }}" in
+            "SukiSU")
+              git clone --depth=1 https://github.com/SukiSU-Ultra/SukiSU-Ultra.git KernelSU
+              ;;
+            "ReSukiSU")
+              git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU.git KernelSU
+              ;;
+            "Official")
+              git clone --depth=1 https://github.com/tiann/KernelSU.git KernelSU
+              ;;
+          esac
           # 复制 KernelSU 内核模块到内核源码
           if [ -d "KernelSU/kernel" ]; then
             cp -r KernelSU/kernel/* common/
@@ -108,17 +117,9 @@ jobs:
             echo "::warning::KernelSU/kernel 目录不存在"
           fi
 
-      - name: 设置 SukiSU
-        if: env.KSU_VARIANT == 'SukiSU'
-        run: |
-          cd kernel_workspace/kernel_platform
-          curl -fsSL https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/main/setup.sh -o setup.sh
-          chmod +x setup.sh
-          ./setup.sh || echo "::warning::SukiSU 设置失败"
-
       - name: 配置内核
         run: |
-          cd kernel_workspace/kernel_platform
+          cd kernel_workspace/common
           export ARCH=arm64
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
@@ -141,7 +142,7 @@ jobs:
 
       - name: 编译内核
         run: |
-          cd kernel_workspace/kernel_platform
+          cd kernel_workspace/common
           export ARCH=arm64
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
@@ -159,7 +160,7 @@ jobs:
       - name: 打包产物
         run: |
           mkdir -p output
-          cp kernel_workspace/kernel_platform/arch/arm64/boot/Image output/
+          cp kernel_workspace/common/arch/arm64/boot/Image output/
           echo "打包完成！"
 
       - name: 上传构建产物
