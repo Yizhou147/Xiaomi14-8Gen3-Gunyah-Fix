@@ -124,6 +124,12 @@ jobs:
 
           repo --trace sync -c -j$(nproc --all) --no-tags --fail-fast
 
+      - name: 克隆补丁仓库
+        run: |
+          cd ${{ github.workspace }}
+          git clone https://github.com/WildKernels/kernel_patches.git --depth=1
+          git clone https://github.com/WildKernels/AnyKernel3.git -b gki-2.0 --depth=1
+
       - name: 添加 KernelSU
         if: inputs.kernelsu_variant != 'None'
         run: |
@@ -142,6 +148,36 @@ jobs:
               curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash -s "stable" || true
               ;;
           esac
+
+      - name: 应用 NTsync 补丁
+        if: inputs.use_ntsync
+        working-directory: ${{ env.KERNEL_ROOT }}/common
+        run: |
+          set -euo pipefail
+          KERNEL_PATCHES=${{ github.workspace }}/kernel_patches
+          DEFCONFIG="arch/arm64/configs/gki_defconfig"
+
+          ensure_defconfig_value() {
+            local cfg="$1"
+            local value="$2"
+            local line="${cfg}=${value}"
+            if grep -qxF "$line" "$DEFCONFIG"; then
+              return 0
+            fi
+            if grep -Eq "^${cfg}=|^# ${cfg} is not set$" "$DEFCONFIG"; then
+              sed -i -E "s|^${cfg}=.*|${line}|; s|^# ${cfg} is not set$|${line}|" "$DEFCONFIG"
+            else
+              echo "$line" >> "$DEFCONFIG"
+            fi
+          }
+
+          echo "启用 NTsync 补丁"
+          echo "应用基础补丁: ntsync_base.patch..."
+          patch -p1 --forward < $KERNEL_PATCHES/common/ntsync/ntsync_base.patch || true
+          PATCH_FILE="$KERNEL_PATCHES/common/ntsync/ntsync_compat_${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch"
+          echo "应用版本补丁: $(basename $PATCH_FILE)"
+          patch -p1 --forward < "$PATCH_FILE" || true
+          echo "NTsync 源码补丁应用完成"
 
       - name: 应用 Gunyah 补丁
         run: |
@@ -201,23 +237,43 @@ jobs:
           cd ${{ env.KERNEL_ROOT }}/common
           DEFCONFIG="arch/arm64/configs/gki_defconfig"
 
+          ensure_defconfig_value() {
+            local cfg="$1"
+            local value="$2"
+            local line="${cfg}=${value}"
+            if grep -qxF "$line" "$DEFCONFIG"; then
+              return 0
+            fi
+            if grep -Eq "^${cfg}=|^# ${cfg} is not set$" "$DEFCONFIG"; then
+              sed -i -E "s|^${cfg}=.*|${line}|; s|^# ${cfg} is not set$|${line}|" "$DEFCONFIG"
+            else
+              echo "$line" >> "$DEFCONFIG"
+            fi
+          }
+
           # KernelSU 配置
           if [ "${{ inputs.kernelsu_variant }}" != "None" ]; then
-            echo "CONFIG_KSU=y" >> "$DEFCONFIG"
-            echo "CONFIG_TMPFS_XATTR=y" >> "$DEFCONFIG"
-            echo "CONFIG_TMPFS_POSIX_ACL=y" >> "$DEFCONFIG"
+            ensure_defconfig_value CONFIG_KSU y
+            ensure_defconfig_value CONFIG_TMPFS_XATTR y
+            ensure_defconfig_value CONFIG_TMPFS_POSIX_ACL y
           fi
 
-          # Gunyah 相关配置（如果补丁已应用）
-          if [ "$GUNYAH_PATCHED" != "false" ]; then
-            echo "CONFIG_GUNYAH=y" >> "$DEFCONFIG"
-            echo "CONFIG_GUNYAH_PLATFORM_HOOKS=y" >> "$DEFCONFIG"
-            echo "CONFIG_GUNYAH_QCOM_PLATFORM=y" >> "$DEFCONFIG"
-          fi
-
-          # NTsync
+          # NTsync 配置（仅在补丁已应用时）
           if [ "${{ inputs.use_ntsync }}" = "true" ]; then
-            echo "CONFIG_NTSYNC=y" >> "$DEFCONFIG"
+            ensure_defconfig_value CONFIG_NTSYNC y
+            echo "NTsync 配置已添加"
+          fi
+
+          # Gunyah 配置（仅在补丁已应用且 Kconfig 存在时）
+          if [ "$GUNYAH_PATCHED" != "false" ]; then
+            if grep -rq "config GUNYAH" drivers/virt/gunyah/Kconfig 2>/dev/null; then
+              ensure_defconfig_value CONFIG_GUNYAH y
+              ensure_defconfig_value CONFIG_GUNYAH_PLATFORM_HOOKS y
+              ensure_defconfig_value CONFIG_GUNYAH_QCOM_PLATFORM y
+              echo "Gunyah 配置已添加"
+            else
+              echo "警告: Gunyah Kconfig 不存在，跳过配置"
+            fi
           fi
 
           echo "内核选项配置完成"
@@ -226,11 +282,15 @@ jobs:
         run: |
           cd ${{ env.KERNEL_ROOT }}
 
-          # 提取 defconfig 差异
+          # 提取 defconfig 差异为 fragment（与 ABK 一致的方式）
           DEFCONFIG="common/arch/arm64/configs/gki_defconfig"
           FRAG="common/arch/arm64/configs/ksu.fragment"
           diff "${DEFCONFIG}.orig" "$DEFCONFIG" | grep '^>' | sed 's/^> //; s/^[[:space:]]*//' > "$FRAG" || true
           cp "${DEFCONFIG}.orig" "$DEFCONFIG"
+
+          echo "=== KSU Fragment 内容 ==="
+          cat "$FRAG"
+          echo "========================="
 
           FRAG_FLAG=""
           if [ -s "$FRAG" ]; then
@@ -252,17 +312,16 @@ jobs:
         run: |
           mkdir -p output
           cd ${{ env.KERNEL_ROOT }}
+          ANYKERNEL3=${{ github.workspace }}/AnyKernel3
 
           # 复制 Image 文件
           cp bazel-bin/common/kernel_aarch64/Image ../output/
           cp bazel-bin/common/kernel_aarch64/Image.lz4 ../output/ 2>/dev/null || true
 
           # 创建 AnyKernel3 包
-          cd ..
-          git clone https://github.com/WildKernels/AnyKernel3.git -b gki-2.0 --depth=1
-          cd AnyKernel3
-          cp ../output/Image ./
+          cp bazel-bin/common/kernel_aarch64/Image $ANYKERNEL3/
           ZIP_NAME="android14-6.1.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-GunyahFix-AnyKernel3.zip"
+          cd $ANYKERNEL3
           zip -r "../output/${ZIP_NAME}" ./*
 
           echo "产物准备完成"
@@ -297,7 +356,8 @@ jobs:
             - 修复 SCM VMID 处理导致的内存共享/回收问题
 
             **补丁来源**:
-            - https://github.com/Andy312432/android_kernel_samsung_sm8650_gunyah
+            - Gunyah: https://github.com/Andy312432/android_kernel_samsung_sm8650_gunyah
+            - NTsync: WildKernels/kernel_patches
 
             **使用说明**:
             1. 下载 AnyKernel3.zip
