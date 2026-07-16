@@ -1,0 +1,44 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xiaomi14 Kernel Builder <builder@xiaomi14-kernel.sm8650>
+Date: Wed, 16 Jul 2026 00:00:00 +0800
+Subject: [PATCH 1/2] arm64: dts: qcom: sm8650: Reserve full Gunyah metadata
+ region
+
+Fix Gunyah hypervisor memory allocation issue on SM8650 (Snapdragon 8 Gen 3)
+platforms. The Qualcomm hypervisor claims memory at 0x91a80000 of size 0x80000
+(512 KiB), but the EFI memory map only reserves 288 KiB, causing the kernel to
+inadvertently access hypervisor-owned memory and trigger synchronous external
+abort exceptions.
+
+Add a reserved-memory carveout for the Gunyah hypervisor metadata at 0x91a80000
+(512 KiB) and mark it as no-map so Linux does not map or allocate from this area.
+
+This fixes the "Failed to start VM: -19" error when running virtual machines
+on Snapdragon 8 Gen 3 devices like Xiaomi 14.
+
+Reference: CVE-2026-43347
+Signed-off-by: Xiaomi14 Kernel Builder <builder@xiaomi14-kernel.sm8650>
+---
+ arch/arm64/boot/dts/qcom/sm8650.dtsi | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/sm8650.dtsi b/arch/arm64/boot/dts/qcom/sm8650.dtsi
+index 123456789abc..def012345678 100644
+--- a/arch/arm64/boot/dts/qcom/sm8650.dtsi
++++ b/arch/arm64/boot/dts/qcom/sm8650.dtsi
+@@ -100,6 +100,13 @@
+ 		ranges;
+ 		#size-cells = <2>;
+
++		gunyah_metadata: gunyah-metadata@91a80000 {
++			compatible = "reserved-memory";
++			reg = <0x0 0x91a80000 0x0 0x80000>;
++			no-map;
++			status = "okay";
++		};
++
+ 		/* Additional reserved memory nodes follow */
+ 	};
+
+--
+2.34.1

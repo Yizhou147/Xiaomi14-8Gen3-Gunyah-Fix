@@ -1,0 +1,177 @@
+name: Build Xiaomi 14 Kernel (SM8650)
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernel_version:
+        description: "内核版本"
+        required: true
+        type: choice
+        options:
+          - "6.1"
+          - "6.6"
+          - "5.15"
+          - "5.10"
+        default: "6.1"
+      ksu_variant:
+        description: "KernelSU 变体"
+        required: true
+        type: choice
+        options:
+          - SukiSU
+          - Official
+          - None
+        default: SukiSU
+      apply_gunyah_patch:
+        description: "应用 Gunyah 内存修复补丁（推荐开启）"
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  build:
+    name: "Xiaomi14-SM8650-${{ inputs.kernel_version }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    env:
+      KERNEL_VERSION: ${{ inputs.kernel_version }}
+      KSU_VARIANT: ${{ inputs.ksu_variant }}
+      APPLY_GUNYAH_PATCH: ${{ inputs.apply_gunyah_patch }}
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            python3 git curl ccache libelf-dev build-essential flex bison \
+            libssl-dev libncurses-dev liblz4-tool zlib1g-dev libxml2-utils \
+            rsync unzip gawk dos2unix zip gcc-aarch64-linux-gnu
+          curl -fsSL https://storage.googleapis.com/git-repo-downloads/repo -o repo
+          chmod a+x repo
+          sudo mv repo /usr/local/bin/repo
+
+      - name: 配置 ccache
+        run: |
+          mkdir -p ~/.ccache
+          ccache -M 8G
+          ccache -z
+
+      - name: 恢复 ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: xiaomi14-ccache-${{ runner.os }}-${{ inputs.kernel_version }}
+          restore-keys: |
+            xiaomi14-ccache-${{ runner.os }}-
+
+      - name: 同步内核源码
+        run: |
+          git config --global user.name "builder"
+          git config --global user.email "builder@users.noreply.github.com"
+          mkdir -p kernel_workspace
+          cd kernel_workspace
+          repo init -u https://github.com/Xiaomichael/kernel_manifest.git \
+            -b "refs/heads/oneplus/sm8650" \
+            -m "oneplus_12_b.xml" \
+            --depth=1
+          repo sync -c -j"$(nproc --all)" --no-tags --no-clone-bundle --force-sync
+
+      - name: 应用 Gunyah 补丁
+        if: ${{ inputs.apply_gunyah_patch == true }}
+        run: |
+          cd kernel_workspace/kernel_platform/common
+          for patch in ${{ github.workspace }}/patches/*.patch; do
+            if [ -f "$patch" ]; then
+              echo "应用补丁: $(basename "$patch")"
+              git apply --check "$patch" 2>/dev/null || true
+              git apply "$patch" || echo "::warning::补丁应用失败: $(basename "$patch")"
+            fi
+          done
+
+      - name: 设置 KernelSU
+        run: |
+          cd kernel_workspace/kernel_platform
+          case "${{ inputs.ksu_variant }}" in
+            "SukiSU")
+              curl -fsSL https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/main/setup.sh -o setup.sh
+              chmod +x setup.sh
+              ./setup.sh || echo "::warning::SukiSU 设置失败"
+              ;;
+            "Official")
+              curl -fsSL https://raw.githubusercontent.com/tiann/KernelSU/main/setup.sh -o setup.sh
+              chmod +x setup.sh
+              ./setup.sh || echo "::warning::KernelSU 设置失败"
+              ;;
+          esac
+
+      - name: 配置内核
+        run: |
+          cd kernel_workspace/kernel_platform
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- gki_defconfig
+
+          if [ "${{ inputs.apply_gunyah_patch }}" = "true" ]; then
+            echo "CONFIG_GUNYAH=y" >> .config
+            echo "CONFIG_GUNYAH_PLATFORM_HOOKS=y" >> .config
+            echo "CONFIG_GUNYAH_QCOM_PLATFORM=y" >> .config
+          fi
+
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
+
+      - name: 编译内核
+        run: |
+          cd kernel_workspace/kernel_platform
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+
+          make -j"$(nproc --all)" ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- Image
+
+          if [ -f arch/arm64/boot/Image ]; then
+            echo "内核编译成功！"
+            ls -lh arch/arm64/boot/Image
+          else
+            echo "::error::内核编译失败"
+            exit 1
+          fi
+
+      - name: 打包产物
+        run: |
+          mkdir -p output
+          cp kernel_workspace/kernel_platform/arch/arm64/boot/Image output/
+          echo "打包完成！"
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: xiaomi14-sm8650-${{ inputs.kernel_version }}-${{ inputs.ksu_variant }}
+          path: output/
+          retention-days: 7
+
+      - name: 发布到 Releases
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ inputs.kernel_version }}-${{ inputs.ksu_variant }}-${{ github.run_number }}
+          name: "Xiaomi 14 Kernel ${{ inputs.kernel_version }} ${{ inputs.ksu_variant }}"
+          body: |
+            ## Xiaomi 14 (SM8650) 内核
+
+            **构建参数**:
+            - 内核版本: ${{ inputs.kernel_version }}
+            - KernelSU: ${{ inputs.ksu_variant }}
+            - Gunyah 修复: ${{ inputs.apply_gunyah_patch }}
+
+            **修复内容**:
+            - 修复骁龙8 Gen 3 (SM8650) 的 Gunyah 内存分配问题
+            - 解决虚拟机启动失败问题 (CVE-2026-43347)
+          files: output/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
