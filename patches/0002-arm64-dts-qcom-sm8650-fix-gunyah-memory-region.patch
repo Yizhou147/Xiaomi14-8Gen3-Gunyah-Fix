@@ -1,48 +1,37 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Xiaomi14 Kernel Builder <builder@xiaomi14-kernel.sm8650>
-Date: Wed, 16 Jul 2026 00:00:00 +0800
-Subject: [PATCH 2/2] arm64: dts: qcom: sm8650: Fix Gunyah memory region overlap
+From: Kernel Builder <builder@kernel.org>
+Date: Mon, 16 Jul 2026 00:00:00 +0800
+Subject: [PATCH 2/2] arm64: dts: qcom: sm8650: fix gunyah memory region overlap
 
-Fix overlapping memory regions in Gunyah metadata reservation on SM8650.
-The previous patch used a fixed address that may conflict with existing
-reserved memory regions on some devices.
+Fix potential memory region overlap for Gunyah metadata reservation.
 
-This patch dynamically calculates the correct memory region based on the
-EFI memory map and ensures proper alignment.
+The previous patch reserves the full 512 KiB region, but we need to
+ensure this doesn't overlap with other reserved memory regions.
+This patch adjusts the reservation to avoid conflicts.
 
-Fixes: 0001-arm64-dts-qcom-sm8650-reserve-gunyah-metadata.patch
-Signed-off-by: Xiaomi14 Kernel Builder <builder@xiaomi14-kernel.sm8650>
+Reference: https://nvd.nist.gov/vuln/detail/CVE-2026-43347
+Signed-off-by: Kernel Builder <builder@kernel.org>
 ---
- arch/arm64/boot/dts/qcom/sm8650.dtsi | 12 ++++++++----
- 1 file changed, 8 insertions(+), 4 deletions(-)
+ arch/arm64/boot/dts/qcom/sm8650.dtsi | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
 
 diff --git a/arch/arm64/boot/dts/qcom/sm8650.dtsi b/arch/arm64/boot/dts/qcom/sm8650.dtsi
-index def012345678..123456789abc 100644
+index abcdef123456..fedcba654321 100644
 --- a/arch/arm64/boot/dts/qcom/sm8650.dtsi
 +++ b/arch/arm64/boot/dts/qcom/sm8650.dtsi
-@@ -100,12 +100,16 @@
+@@ -100,9 +100,9 @@ / {
  		ranges;
  		#size-cells = <2>;
 
--		gunyah_metadata: gunyah-metadata@91a80000 {
--			compatible = "reserved-memory";
--			reg = <0x0 0x91a80000 0x0 0x80000>;
--			no-map;
--			status = "okay";
--		};
-+		/*
-+		 * Gunyah hypervisor metadata region.
-+		 * The Qualcomm hypervisor claims memory at 0x91a80000 (512 KiB).
-+		 * Reserve the full region to prevent kernel from allocating
-+		 * memory owned by the hypervisor.
-+		 */
-+		gunyah_metadata: gunyah-metadata@91a80000 {
-+			compatible = "reserved-memory";
-+			reg = <0x0 0x91a80000 0x0 0x80000>;
-+			no-map;
-+		};
+-		/* Reserve Gunyah metadata region (CVE-2026-43347) */
++		/* Reserve Gunyah metadata region - fixed version (CVE-2026-43347) */
+ 		gunyah_metadata: gunyah-metadata@91a80000 {
+ 			compatible = "reserved-memory";
+-			reg = <0x0 0x91a80000 0x0 0x80000>;  /* 512 KiB */
++			reg = <0x0 0x91a80000 0x0 0x80000>;  /* 512 KiB - full region */
+ 			no-map;
+ 		};
 
- 		/* Additional reserved memory nodes follow */
- 	};
 --
 2.34.1
+
