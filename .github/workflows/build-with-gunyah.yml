@@ -195,28 +195,18 @@ jobs:
             exit 0
           fi
 
-          echo "下载 Gunyah 内存修复补丁..."
-          wget -q "https://raw.githubusercontent.com/Yizhou147/Xiaomi14-8Gen3-Gunyah-Fix/main/patches/0001-gunyah-fix-large-memory-allocation.patch" || \
-            wget -q "https://raw.githubusercontent.com/Yizhou147/Xiaomi14-8Gen3-Gunyah-Fix/master/patches/0001-gunyah-fix-large-memory-allocation.patch"
-          wget -q "https://raw.githubusercontent.com/Yizhou147/Xiaomi14-8Gen3-Gunyah-Fix/main/patches/0002-gunyah-fix-scm-vmid-handling.patch" || \
-            wget -q "https://raw.githubusercontent.com/Yizhou147/Xiaomi14-8Gen3-Gunyah-Fix/master/patches/0002-gunyah-fix-scm-vmid-handling.patch"
+          echo "下载 GKI 兼容的 Gunyah VMID 修复补丁..."
+          wget -q "https://raw.githubusercontent.com/Yizhou147/Xiaomi14-8Gen3-Gunyah-Fix/main/patches/0001-gunyah-fix-scm-vmid-gki-compat.patch" || \
+            wget -q "https://raw.githubusercontent.com/Yizhou147/Xiaomi14-8Gen3-Gunyah-Fix/master/patches/0001-gunyah-fix-scm-vmid-gki-compat.patch"
 
-          echo "应用 Gunyah 内存修复补丁..."
+          echo "应用 GKI 兼容的 Gunyah VMID 修复补丁..."
           PATCHED=true
 
-          if git apply --check 0001-gunyah-fix-large-memory-allocation.patch 2>/dev/null; then
-            git apply 0001-gunyah-fix-large-memory-allocation.patch
-            echo "补丁1应用成功: 修复大内存分配"
+          if git apply --check 0001-gunyah-fix-scm-vmid-gki-compat.patch 2>/dev/null; then
+            git apply 0001-gunyah-fix-scm-vmid-gki-compat.patch
+            echo "补丁应用成功: 修复 SCM VMID 处理 (GKI 兼容)"
           else
-            echo "警告: 补丁1无法应用（可能已应用或代码不匹配）"
-            PATCHED=false
-          fi
-
-          if git apply --check 0002-gunyah-fix-scm-vmid-handling.patch 2>/dev/null; then
-            git apply 0002-gunyah-fix-scm-vmid-handling.patch
-            echo "补丁2应用成功: 修复 SCM VMID 处理"
-          else
-            echo "警告: 补丁2无法应用（可能已应用或代码不匹配）"
+            echo "警告: 补丁无法应用（可能已应用或代码不匹配）"
             PATCHED=false
           fi
 
