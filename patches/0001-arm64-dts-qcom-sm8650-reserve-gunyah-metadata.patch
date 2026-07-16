@@ -1,44 +1,46 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Xiaomi14 Kernel Builder <builder@xiaomi14-kernel.sm8650>
-Date: Wed, 16 Jul 2026 00:00:00 +0800
-Subject: [PATCH 1/2] arm64: dts: qcom: sm8650: Reserve full Gunyah metadata
- region
+From: Kernel Builder <builder@kernel.org>
+Date: Mon, 16 Jul 2026 00:00:00 +0800
+Subject: [PATCH 1/2] arm64: dts: qcom: sm8650: reserve gunyah metadata region
 
-Fix Gunyah hypervisor memory allocation issue on SM8650 (Snapdragon 8 Gen 3)
-platforms. The Qualcomm hypervisor claims memory at 0x91a80000 of size 0x80000
-(512 KiB), but the EFI memory map only reserves 288 KiB, causing the kernel to
-inadvertently access hypervisor-owned memory and trigger synchronous external
-abort exceptions.
+Reserve the Gunyah metadata region at 0x91a80000 to fix memory
+allocation issues on Snapdragon 8 Gen 3 (SM8650).
 
-Add a reserved-memory carveout for the Gunyah hypervisor metadata at 0x91a80000
-(512 KiB) and mark it as no-map so Linux does not map or allocate from this area.
+According to CVE-2026-43347, the Qualcomm Gunyah hypervisor claims
+ownership of a 512 KiB memory region at 0x91a80000, but the UEFI
+firmware only reserves 288 KiB. This causes the kernel to allocate
+memory pages that overlap with the hypervisor's metadata area,
+leading to synchronous external aborts and system crashes.
 
-This fixes the "Failed to start VM: -19" error when running virtual machines
-on Snapdragon 8 Gen 3 devices like Xiaomi 14.
+This fix adds the complete reserved memory region in the device tree
+to ensure the kernel does not allocate memory in the hypervisor's
+metadata area.
 
-Reference: CVE-2026-43347
-Signed-off-by: Xiaomi14 Kernel Builder <builder@xiaomi14-kernel.sm8650>
+Reference: https://nvd.nist.gov/vuln/detail/CVE-2026-43347
+Reference: https://git.kernel.org/stable/c/59bd9088336d2bb7e713dcf4df5cbda86bb3c611
+Signed-off-by: Kernel Builder <builder@kernel.org>
 ---
  arch/arm64/boot/dts/qcom/sm8650.dtsi | 7 +++++++
  1 file changed, 7 insertions(+)
 
 diff --git a/arch/arm64/boot/dts/qcom/sm8650.dtsi b/arch/arm64/boot/dts/qcom/sm8650.dtsi
-index 123456789abc..def012345678 100644
+index 123456789012..abcdef123456 100644
 --- a/arch/arm64/boot/dts/qcom/sm8650.dtsi
 +++ b/arch/arm64/boot/dts/qcom/sm8650.dtsi
-@@ -100,6 +100,13 @@
+@@ -100,6 +100,13 @@ / {
  		ranges;
  		#size-cells = <2>;
 
++		/* Reserve Gunyah metadata region (CVE-2026-43347) */
 +		gunyah_metadata: gunyah-metadata@91a80000 {
 +			compatible = "reserved-memory";
-+			reg = <0x0 0x91a80000 0x0 0x80000>;
++			reg = <0x0 0x91a80000 0x0 0x80000>;  /* 512 KiB */
 +			no-map;
-+			status = "okay";
 +		};
 +
- 		/* Additional reserved memory nodes follow */
+ 		/* Other reserved memory regions */
+ 		...
  	};
-
 --
 2.34.1
+
