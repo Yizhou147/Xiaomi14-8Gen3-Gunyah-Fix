@@ -40,11 +40,6 @@ on:
         description: "启用 NTsync"
         type: boolean
         default: true
-      virtualization_support:
-        description: "虚拟化支持"
-        type: choice
-        options: ["off", "on", "678", "123", "345"]
-        default: "on"
 jobs:
   build-kernel:
     name: "Gunyah修复 + 构建内核"
@@ -152,22 +147,45 @@ jobs:
         run: |
           cd ${{ env.KERNEL_ROOT }}/common
 
+          # 检查 Gunyah 驱动是否存在
+          if [ ! -d "drivers/virt/gunyah" ]; then
+            echo "警告: drivers/virt/gunyah 目录不存在，跳过 Gunyah 补丁"
+            echo "GUNYAH_PATCHED=false" >> $GITHUB_ENV
+            exit 0
+          fi
+
           echo "下载 Gunyah 内存修复补丁..."
-          wget -q https://raw.githubusercontent.com/Yizhou147/Xiaomi14-8Gen3-Gunyah-Fix/master/patches/0001-arm64-dts-qcom-sm8650-reserve-gunyah-metadata.patch
-          wget -q https://raw.githubusercontent.com/Yizhou147/Xiaomi14-8Gen3-Gunyah-Fix/master/patches/0002-arm64-dts-qcom-sm8650-fix-gunyah-memory-region.patch
+          wget -q "https://raw.githubusercontent.com/Yizhou147/Xiaomi14-8Gen3-Gunyah-Fix/main/patches/0001-gunyah-fix-large-memory-allocation.patch" || \
+            wget -q "https://raw.githubusercontent.com/Yizhou147/Xiaomi14-8Gen3-Gunyah-Fix/master/patches/0001-gunyah-fix-large-memory-allocation.patch"
+          wget -q "https://raw.githubusercontent.com/Yizhou147/Xiaomi14-8Gen3-Gunyah-Fix/main/patches/0002-gunyah-fix-scm-vmid-handling.patch" || \
+            wget -q "https://raw.githubusercontent.com/Yizhou147/Xiaomi14-8Gen3-Gunyah-Fix/master/patches/0002-gunyah-fix-scm-vmid-handling.patch"
 
           echo "应用 Gunyah 内存修复补丁..."
-          git apply --check 0001-arm64-dts-qcom-sm8650-reserve-gunyah-metadata.patch 2>/dev/null && \
-            git apply 0001-arm64-dts-qcom-sm8650-reserve-gunyah-metadata.patch && \
-            echo "✓ 补丁1应用成功" || \
-            echo "⚠ 补丁1可能已应用或存在冲突"
+          PATCHED=true
 
-          git apply --check 0002-arm64-dts-qcom-sm8650-fix-gunyah-memory-region.patch 2>/dev/null && \
-            git apply 0002-arm64-dts-qcom-sm8650-fix-gunyah-memory-region.patch && \
-            echo "✓ 补丁2应用成功" || \
-            echo "⚠ 补丁2可能已应用或存在冲突"
+          if git apply --check 0001-gunyah-fix-large-memory-allocation.patch 2>/dev/null; then
+            git apply 0001-gunyah-fix-large-memory-allocation.patch
+            echo "补丁1应用成功: 修复大内存分配"
+          else
+            echo "警告: 补丁1无法应用（可能已应用或代码不匹配）"
+            PATCHED=false
+          fi
 
-          echo "Gunyah 补丁应用完成"
+          if git apply --check 0002-gunyah-fix-scm-vmid-handling.patch 2>/dev/null; then
+            git apply 0002-gunyah-fix-scm-vmid-handling.patch
+            echo "补丁2应用成功: 修复 SCM VMID 处理"
+          else
+            echo "警告: 补丁2无法应用（可能已应用或代码不匹配）"
+            PATCHED=false
+          fi
+
+          if [ "$PATCHED" = "true" ]; then
+            echo "GUNYAH_PATCHED=true" >> $GITHUB_ENV
+            echo "所有 Gunyah 补丁应用成功"
+          else
+            echo "GUNYAH_PATCHED=partial" >> $GITHUB_ENV
+            echo "部分补丁未能应用，请检查日志"
+          fi
 
       - name: 备份基准 defconfig
         run: |
@@ -190,10 +208,12 @@ jobs:
             echo "CONFIG_TMPFS_POSIX_ACL=y" >> "$DEFCONFIG"
           fi
 
-          # Gunyah 相关配置
-          echo "CONFIG_GUNYAH=y" >> "$DEFCONFIG"
-          echo "CONFIG_GUNYAH_PLATFORM_HOOKS=y" >> "$DEFCONFIG"
-          echo "CONFIG_GUNYAH_QCOM_PLATFORM=y" >> "$DEFCONFIG"
+          # Gunyah 相关配置（如果补丁已应用）
+          if [ "$GUNYAH_PATCHED" != "false" ]; then
+            echo "CONFIG_GUNYAH=y" >> "$DEFCONFIG"
+            echo "CONFIG_GUNYAH_PLATFORM_HOOKS=y" >> "$DEFCONFIG"
+            echo "CONFIG_GUNYAH_QCOM_PLATFORM=y" >> "$DEFCONFIG"
+          fi
 
           # NTsync
           if [ "${{ inputs.use_ntsync }}" = "true" ]; then
@@ -269,11 +289,15 @@ jobs:
             - 安全补丁: ${{ inputs.os_patch_level }}
             - KernelSU: ${{ inputs.kernelsu_variant }}
             - NTsync: ${{ inputs.use_ntsync }}
-            - 虚拟化: ${{ inputs.virtualization_support }}
+            - Gunyah 补丁: ${{ env.GUNYAH_PATCHED }}
 
             **修复内容**:
             - 修复骁龙8 Gen 3 (SM8650) 的 Gunyah 内存分配问题
-            - 解决虚拟机启动失败问题 (CVE-2026-43347)
+            - 解决 DroidVM 大内存分配失败 (ENOMEM)
+            - 修复 SCM VMID 处理导致的内存共享/回收问题
+
+            **补丁来源**:
+            - https://github.com/Andy312432/android_kernel_samsung_sm8650_gunyah
 
             **使用说明**:
             1. 下载 AnyKernel3.zip
