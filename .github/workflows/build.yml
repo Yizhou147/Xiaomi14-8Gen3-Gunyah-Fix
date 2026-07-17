@@ -5818,6 +5818,37 @@ jobs:
             THIRD_PARTY_NOTICES.md
           compression-level: 9
 
+      - name: 发布 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ inputs.kernel_version }}.${{ inputs.sub_level }}-GunyahFix-${{ github.run_number }}
+          name: "小米14 Gunyah修复内核 ${{ inputs.kernel_version }}.${{ inputs.sub_level }}"
+          body: |
+            ## 小米14 (SM8650) Gunyah 修复内核
+
+            **构建参数**:
+            - 内核版本: ${{ inputs.kernel_version }}.${{ inputs.sub_level }}
+            - 安全补丁: ${{ inputs.os_patch_level }}
+            - KernelSU: ${{ inputs.ksu_variant }}
+            - NTsync: ${{ inputs.use_ntsync }}
+            - Gunyah 补丁: ${{ inputs.use_gunyah }}
+            - DroidSpaces: ${{ inputs.virtualization_support }}
+
+            **修复内容**:
+            - 修复骁龙8 Gen 3 (SM8650) 的 Gunyah VMID 映射问题
+            - 使 DroidVM 等虚拟化应用能正常启动虚拟机
+
+            **使用说明**:
+            1. 下载 AnyKernel3.zip
+            2. 通过 TWRP 或 Kernel Manager 刷入
+            3. 重启设备
+          files: |
+            *.bundle.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: 上传补丁冲突文件
         if: always() && env.REJ_COUNT > 0
         uses: actions/upload-artifact@v6
