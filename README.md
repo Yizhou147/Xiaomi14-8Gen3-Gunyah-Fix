@@ -1,143 +1,89 @@
-# Xiaomi 14 (SM8650) 骁龙8Gen3 Gunyah内存修复内核
+# Xiaomi 14 (SM8650) Gunyah VMID 修复内核
 
 ## 项目说明
 
-本项目提供 Gunyah 内存修复补丁，用于修复小米14 (SM8650) 的 Gunyah 内存分配问题。补丁可以集成到 [ABK (AnyBase Kernel)](https://github.com/xingguangcuican6666/ABK) 项目中使用。
+本项目基于 [ABK (AnyBase Kernel)](https://github.com/xingguangcuican6666/ABK) 的完整构建流程，为小米14 (SM8650 / 骁龙8 Gen 3) 编译带有 **Gunyah VMID 修复** 的 GKI 内核。
 
 ## 问题描述
 
-骁龙8 Gen 3 (SM8650) 设备存在 Gunyah 虚拟机管理程序内存分配问题，导致：
-- 虚拟机启动失败
-- 错误代码：`No such device (os error 19)`
-- 参考：[CVE-2026-43347](https://nvd.nist.gov/vuln/detail/CVE-2026-43347)
+骁龙8 Gen 3 (SM8650) 的 Gunyah 虚拟机管理程序存在 VMID 映射问题：
+- SM8650 上 RM（Resource Manager）运行在独立 VM，VMID 大于 `QCOM_SCM_MAX_MANAGED_VMID (0x3F)`
+- 原始内核代码硬编码 HLOS VMID，导致 SCM 调用拒绝，虚拟机无法启动
+- 表现为 DroidVM 等虚拟化应用报错：`No such device (os error 19)` 或 `Out of memory (os error 12)`
+
+> **注意**：骁龙8 Elite (SM8750) 及以后的芯片已重构 Gunyah 代码，不存在此问题。
 
 ## 快速开始
 
-### 步骤一：Fork ABK项目
+### 直接使用本仓库（推荐）
 
-1. 访问 https://github.com/xingguangcuican6666/ABK
-2. 点击右上角的 **"Fork"** 按钮
-3. 等待 Fork 完成
+1. **Fork 本仓库**
+2. 进入 **Actions** 选项卡，启用 GitHub Actions
+3. 选择 **kernel-custom** 工作流，点击 **Run workflow**
+4. 参数保持默认即可（`use_gunyah=true`）
+5. 等待构建完成（约1-2小时），下载 Artifacts 中的内核包
+6. 通过 TWRP 或 fastboot 刷入
 
-### 步骤二：应用 Gunyah 补丁
+### 构建参数说明
 
-#### 方法A：手动应用补丁（推荐）
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `android_version` | android14 | Android 版本 |
+| `kernel_version` | 6.1 | 内核版本 |
+| `sub_level` | 138 | 内核子版本号 |
+| `os_patch_level` | 2025-06 | 安全补丁级别 |
+| `kernelsu_variant` | Official | KernelSU 变体 |
+| `kernelsu_branch` | Stable(标准) | KernelSU 分支 |
+| `use_gunyah` | true | 启用 Gunyah VMID 修复 |
+| `use_ntsync` | false | 启用 NTsync 补丁 |
+| `cancel_susfs` | true | 禁用 SUSFS |
+| `virtualization_support` | 678 | DroidSpaces 虚拟化槽位 |
 
-1. **克隆你 Fork 的 ABK 仓库**
-   ```bash
-   git clone https://github.com/你的用户名/ABK.git
-   cd ABK
-   ```
+## 内核包含的修复
 
-2. **下载本项目的补丁文件**
-   ```bash
-   # 从本仓库下载补丁
-   wget https://raw.githubusercontent.com/Yizhou147/Xiaomi14-8Gen3-Gunyah-Fix/master/patches/0001-arm64-dts-qcom-sm8650-reserve-gunyah-metadata.patch
-   wget https://raw.githubusercontent.com/Yizhou147/Xiaomi14-8Gen3-Gunyah-Fix/master/patches/0002-arm64-dts-qcom-sm8650-fix-gunyah-memory-region.patch
-   ```
+### Gunyah VMID 修复（核心）
 
-3. **应用补丁到内核源码**
-   ```bash
-   # 在 ABK 项目根目录运行
-   git apply 0001-arm64-dts-qcom-sm8650-reserve-gunyah-metadata.patch
-   git apply 0002-arm64-dts-qcom-sm8650-fix-gunyah-memory-region.patch
-   ```
+在内核编译时修改 `gunyah_qcom.c` 中的 VMID 处理逻辑：
+- 通过 `qcom_scm_map_vmid()` 查询真实 VMID 映射
+- 当 VMID 超过 `QCOM_SCM_MAX_MANAGED_VMID (0x3F)` 时，使用正确的 SCM 调用路径
+- 使用 `DEFINE_MUTEX` 保护 VMID 查询的并发安全
 
-4. **提交更改**
-   ```bash
-   git add .
-   git commit -m "Apply Gunyah memory fix for SM8650 (CVE-2026-43347)"
-   git push
-   ```
+### KernelSU
 
-#### 方法B：使用集成脚本
+集成 [KernelSU](https://github.com/tiann/KernelSU)，提供内核级 root 支持。
 
-1. **下载本项目**
-   ```bash
-   git clone https://github.com/Yizhou147/Xiaomi14-8Gen3-Gunyah-Fix.git
-   cd Xiaomi14-8Gen3-Gunyah-Fix
-   ```
+### DroidSpaces 虚拟化支持（可选）
 
-2. **运行集成脚本**
-   ```bash
-   ./scripts/apply-gunyah-patch.sh /path/to/ABK/kernel/source
-   ```
+通过 `virtualization_support` 参数启用 [DroidSpaces](https://github.com/ravindu644/Droidspaces-OSS) 补丁，增强虚拟化能力。
 
-### 步骤三：启用 GitHub Actions
+## 已知限制
 
-1. 进入你 Fork 的 ABK 仓库
-2. 点击 **Actions** 选项卡
-3. 如果看到 "Actions isn't enabled for this repository"，点击 **"I understand my workflows, go ahead and enable them"**
+- **单 VM 内存上限约 2GB**：SM8650 的 Gunyah 固件（EL2 层）对单个虚拟机有约 2GB 的内存限制，这是固件层面的硬限制，内核补丁无法绕过
+- 如需更大内存，可考虑开多个较小的 VM
 
-### 步骤四：触发构建
+## 项目结构
 
-1. 选择 **"构建内核"** 工作流
-2. 点击 **"Run workflow"**
-3. 选择参数：
-   - **KernelSU 变体**：`ReSukiSU` 或 `SukiSU`（推荐）
-   - **构建全部版本**：`true`
-4. 点击 **"Run workflow"**
-
-### 步骤五：下载内核
-
-1. 构建完成后（约1-2小时）
-2. 在 **Actions** 页面下载 **Artifacts**
-3. 或在 **Releases** 页面下载发布版本
-
-## 补丁说明
-
-### Gunyah 内存修复补丁
-
-- **补丁1**: `0001-arm64-dts-qcom-sm8650-reserve-gunyah-metadata.patch`
-  - 在设备树中预留 Gunyah 元数据区域（512 KiB）
-  - 解决内存分配冲突问题
-
-- **补丁2**: `0002-arm64-dts-qcom-sm8650-fix-gunyah-memory-region.patch`
-  - 优化补丁，确保内存区域不重叠
-  - 提高兼容性
-
-### 技术细节
-
-根据 [CVE-2026-43347](https://nvd.nist.gov/vuln/detail/CVE-2026-43347)：
-
-**问题根源**：
-- 高通 Gunyah 虚拟机管理程序声称拥有 `0x91a80000` 处的 512KB 内存区域
-- UEFI 固件只预留了 288KB
-- 内核分配器使用了这些被虚拟机管理程序占用的内存页
-- 导致同步外部中止异常，系统崩溃
-
-**解决方案**：
-- 在设备树中完整预留 Gunyah 元数据区域
-- 确保内核不会分配这些内存页
-- 避免与虚拟机管理程序冲突
-
-## KernelSU 集成说明
-
-本补丁与 KernelSU 完全兼容。在 ABK 构建时，你可以选择以下 KernelSU 变体：
-
-- **ReSukiSU**：推荐，功能丰富，稳定性好
-- **SukiSU**：另一个流行的选择
-- **Official**：官方 KernelSU
-
-**建议配置**：
-- KernelSU 变体：`ReSukiSU`
-- 构建全部版本：`true`
-
-## 注意事项
-
-1. **风险提示**：刷入自定义内核属于高风险操作，建议先备份 Boot 镜像
-2. **兼容性**：本补丁适用于所有 SM8650 设备（小米14、OnePlus 12 等）
-3. **骁龙8 Elite**：8 Elite (SM8750) 及以后的芯片已经重构了 Gunyah 代码，不存在此问题
-4. **内核版本**：补丁适用于 android14-6.1 内核
+```
+.github/
+  workflows/
+    build.yml          # 核心构建流程（基于 ABK，含 Gunyah VMID 修复）
+    kernel-custom.yml   # 自定义构建触发器
+    get-manager.yml     # KernelSU Manager 下载
+  scripts/
+    resolve-ksu-ref.sh  # KernelSU 分支解析
+    download-manager-from-actions.sh  # Manager APK 下载
+config/
+    config              # stock defconfig
+    zram.config         # zram 配置
+```
 
 ## 相关链接
 
-- [ABK项目](https://github.com/xingguangcuican6666/ABK)
-- [DroidVM Issue #4](https://github.com/Droid-VM/DroidVM/issues/4)
-- [CVE-2026-43347](https://nvd.nist.gov/vuln/detail/CVE-2026-43347)
-- [KernelSU Official](https://github.com/tiann/KernelSU)
-- [SukiSU](https://github.com/SukiSU-Ultra/SukiSU-Ultra)
-- [ReSukiSU](https://github.com/ReSukiSU/ReSukiSU)
+- [ABK 项目](https://github.com/xingguangcuican6666/ABK)
+- [DroidVM](https://github.com/Droid-VM/DroidVM)
+- [DroidVM Wiki - SM8650 已知问题](https://droidvm.github.io/en/wiki/troubleshooting/common-issues.html)
+- [KernelSU](https://github.com/tiann/KernelSU)
+- [gh-hugepage-reserve 模块](https://github.com/Droid-VM/gh-hugepage-reserve)
 
 ## 许可证
 
