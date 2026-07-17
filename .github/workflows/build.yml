@@ -5350,58 +5350,6 @@ jobs:
             echo "Gunyah VMID 修复已应用（已包含锁保护），跳过"
           fi
 
-      - name: 应用 Gunyah kvcalloc 大内存分配修复
-        if: inputs.use_gunyah
-        working-directory: ${{ env.KERNEL_ROOT }}
-        run: |
-          set -euo pipefail
-          GUNYAH_DIR="common/drivers/virt/gunyah"
-          if [ ! -d "$GUNYAH_DIR" ]; then
-            echo "::warning::未找到 Gunyah 驱动目录 ($GUNYAH_DIR)，跳过 kvcalloc 修复"
-            exit 0
-          fi
-          python3 <<'PY'
-          import glob, os, re
-
-          gunyah_dir = os.environ.get("GUNYAH_DIR", "common/drivers/virt/gunyah")
-          # 目标文件：内存管理相关的 .c 文件
-          targets = [
-              os.path.join(gunyah_dir, "vm_mgr.c"),
-              os.path.join(gunyah_dir, "vm_mgr_mem.c"),
-          ]
-          # 也包含目录下其他可能有 kcalloc 的 .c 文件（排除 gunyah_qcom.c，VMID 修复已处理）
-          for f in glob.glob(os.path.join(gunyah_dir, "*.c")):
-              if f not in targets and "gunyah_qcom" not in f:
-                  targets.append(f)
-
-          total_replaced = 0
-          for path in targets:
-              if not os.path.isfile(path):
-                  continue
-              with open(path, 'r') as fh:
-                  content = fh.read()
-              original = content
-              # 替换 kcalloc → kvcalloc（大内存分配，使用 vmalloc 避免高阶连续物理页需求）
-              content = re.sub(r'\bkcalloc\b', 'kvcalloc', content)
-              # 替换 kfree → kvfree（与 kvcalloc 配对，兼容 kmalloc 和 vmalloc 两种后端）
-              content = re.sub(r'\bkfree\b', 'kvfree', content)
-              if content != original:
-                  kcalloc_n = original.count('kcalloc') - content.count('kcalloc') + content.count('kvcalloc') - original.count('kvcalloc')
-                  # 简单计数
-                  kc = len(re.findall(r'\bkcalloc\b', original))
-                  kf = len(re.findall(r'\bkfree\b', original))
-                  with open(path, 'w') as fh:
-                      fh.write(content)
-                  basename = os.path.basename(path)
-                  print(f"  {basename}: kcalloc→kvcalloc x{kc}, kfree→kvfree x{kf}")
-                  total_replaced += kc + kf
-
-          if total_replaced > 0:
-              print(f"Gunyah kvcalloc 修复已应用（共 {total_replaced} 处替换）")
-          else:
-              print("Gunyah 驱动中未发现 kcalloc/kfree，可能已使用 kvcalloc/kvfree，跳过")
-          PY
-
       - name: 编译内核
         uses: nick-fields/retry@v4
         with:
