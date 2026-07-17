@@ -56,10 +56,22 @@
 
 通过 `virtualization_support` 参数启用 [DroidSpaces](https://github.com/ravindu644/Droidspaces-OSS) 补丁，增强虚拟化能力。
 
+## kvcalloc 模块（突破 2GB 内存限制）
+
+除了内核内置的 VMID 修复外，还需要 **kvcalloc 模块** 来突破单 VM 2GB 内存限制。
+
+该模块通过 kprobe 劫持 Gunyah 驱动的内存分配函数，将 `kcalloc` 替换为 `kvcalloc`，解决大内存 VM 创建时的 OOM 问题。
+
+**下载地址**：[`modules/gunyah_kvcalloc_fix.zip`](modules/gunyah_kvcalloc_fix.zip)
+
+**安装方法**：通过 KernelSU/Magisk Manager 刷入 ZIP，重启即可。详见 [`modules/README.md`](modules/README.md)。
+
+> **注意**：该模块由 **秋秋**（QQ: 3487467850）编译，仅适用于 `6.1.138` 内核版本。
+
 ## 已知限制
 
-- **单 VM 内存上限约 2GB**：SM8650 的 Gunyah 固件（EL2 层）对单个虚拟机有约 2GB 的内存限制，这是固件层面的硬限制，内核补丁无法绕过
-- 如需更大内存，可考虑开多个较小的 VM
+- 需要同时刷入 **kvcalloc 模块** 才能突破单 VM 2GB 内存限制
+- 模块需要与内核版本匹配，内核更新后需要重新编译模块
 
 ## 项目结构
 
@@ -75,6 +87,10 @@
 config/
     config              # stock defconfig
     zram.config         # zram 配置
+modules/
+    gunyah_kvcalloc_fix.zip   # kvcalloc 修复模块（KernelSU/Magisk ZIP）
+    gunyah_kvcalloc_mod.ko    # kvcalloc 修复模块（独立 .ko 文件）
+    README.md                 # 模块说明
 ```
 
 ## 相关链接
@@ -84,6 +100,12 @@ config/
 - [DroidVM Wiki - SM8650 已知问题](https://droidvm.github.io/en/wiki/troubleshooting/common-issues.html)
 - [KernelSU](https://github.com/tiann/KernelSU)
 - [gh-hugepage-reserve 模块](https://github.com/Droid-VM/gh-hugepage-reserve)
+
+## 致谢
+
+- **秋秋** (QQ: 3487467850) — 编译 kvcalloc 修复模块，突破单 VM 2GB 内存限制
+- [ABK](https://github.com/xingguangcuican6666/ABK) — 内核构建流程
+- [DroidVM](https://github.com/Droid-VM) — 虚拟化平台
 
 ## 许可证
 
