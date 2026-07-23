@@ -5843,6 +5843,7 @@ jobs:
             2. 通过 TWRP 或 Kernel Manager 刷入
             3. 重启设备
           files: |
+            *AnyKernel3.zip
             *.bundle.zip
           draft: false
           prerelease: false
