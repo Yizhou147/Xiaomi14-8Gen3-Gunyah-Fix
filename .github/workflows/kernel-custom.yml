@@ -60,9 +60,9 @@ on:
           - Custom(自定义)
         default: Stable(标准)
 
-      # ==================== 虚拟化支持 ====================
+      # ==================== DroidSpaces 支持 ====================
       virtualization_support:
-        description: "DroidSpaces 虚拟化支持 (567=槽位补丁)"
+        description: "DroidSpaces 支持 (678=槽位补丁)"
         required: false
         type: choice
         options:
@@ -71,7 +71,7 @@ on:
           - "678"
           - "123"
           - "345"
-        default: "off"
+        default: "678"
 
       # ==================== Gunyah 修复 ====================
       use_gunyah:

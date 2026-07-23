@@ -2460,6 +2460,7 @@ jobs:
           enable_required_config CONFIG_POSIX_MQUEUE
           enable_required_config CONFIG_IPC_NS
           enable_required_config CONFIG_PID_NS
+          enable_required_config CONFIG_USER_NS
           enable_required_config CONFIG_DEVTMPFS
 
           # 可选: 网络相关配置 (Docker/NAT 模式)
