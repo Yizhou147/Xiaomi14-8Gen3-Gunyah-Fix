@@ -16,6 +16,14 @@ on:
       custom_ref:
         required: false
         type: string
+      use_ntsync:
+        required: false
+        type: boolean
+        default: false
+      use_networking:
+        required: false
+        type: boolean
+        default: false
     outputs:
       susVer:
         description: "The fetched SUSFS version number"
