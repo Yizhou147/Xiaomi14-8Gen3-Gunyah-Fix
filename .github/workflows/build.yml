@@ -627,6 +627,12 @@ jobs:
           git clone https://github.com/WildKernels/AnyKernel3.git -b "$ANYKERNEL_BRANCH"
           rm -rf AnyKernel3/.git
 
+          # 修补 update-binary shebang，兼容 TWRP（/sbin/sh → /system/bin/sh）
+          if [ -f "AnyKernel3/META-INF/com/google/android/update-binary" ]; then
+            sed -i '1s|^#!/sbin/sh|#!/system/bin/sh|' AnyKernel3/META-INF/com/google/android/update-binary
+            echo "已修补 AnyKernel3 update-binary shebang 为 /system/bin/sh"
+          fi
+
           if [ "${{ inputs.enable_susfs }}" == "true" ]; then
             echo "克隆 SUSFS (分支: $SUSFS_BRANCH)..."
             retry_git_clone https://gitlab.com/simonpunk/susfs4ksu.git "$SUSFS_BRANCH" susfs4ksu
