@@ -4089,11 +4089,11 @@ jobs:
 
               #ifdef CONFIG_COMPAT
                       if (unlikely(envp_user->is_compat))
-                          ret = ksu_adb_root_handle_execve(filename->name, (void ***)&envp_user->ptr.compat);
+                          ret = ksu_adb_root_handle_execveat(filename->name, (void ***)&envp_user->ptr.compat);
                       else
-                          ret = ksu_adb_root_handle_execve(filename->name, (void ***)&envp_user->ptr.native);
+                          ret = ksu_adb_root_handle_execveat(filename->name, (void ***)&envp_user->ptr.native);
               #else
-                      ret = ksu_adb_root_handle_execve(filename->name, (void ***)&envp_user->ptr.native);
+                      ret = ksu_adb_root_handle_execveat(filename->name, (void ***)&envp_user->ptr.native);
               #endif
 
                       if (ret) {
@@ -4579,7 +4579,7 @@ jobs:
           text = text.replace('#include "hook/syscall_hook.h"\n', "")
           text = ensure_line_after(text, '#include "feature/adb_root.h"\n', '#include "hook/setuid_hook.h"\n')
           text = ensure_line_after(text, '#include "hook/setuid_hook.h"\n', '#include "feature/sucompat.h"\n')
-          text = text.replace("bool ksu_late_loaded;\n", "")
+          # text = text.replace("bool ksu_late_loaded;\n", "")
           text = re.sub(
               r'\n#if defined\(__x86_64__\)\n#include <asm/cpufeature\.h>\n#include <linux/version\.h>\n#ifndef X86_FEATURE_INDIRECT_SAFE\n#error "FATAL: Your kernel is missing the indirect syscall bypass patches!"\n#endif\n#endif\n',
               "\n",
@@ -4606,11 +4606,11 @@ jobs:
           include_ksu = ksu_dir / "include/ksu.h"
           if include_ksu.exists():
               header = include_ksu.read_text()
-              updated = header.replace("extern bool ksu_late_loaded;\n", "")
-              if updated != header:
-                  include_ksu.write_text(updated)
-                  changed = True
-                  print(f"已移除 {include_ksu} 中的 ksu_late_loaded 声明")
+              # updated = header.replace("extern bool ksu_late_loaded;\n", "")
+              # if updated != header:
+              #     include_ksu.write_text(updated)
+              #     changed = True
+              #     print(f"已移除 {include_ksu} 中的 ksu_late_loaded 声明")
 
           changed = ensure_official_susfs_objects(ksu_dir) or changed
           changed = patch_official_selinux_hide(ksu_dir) or changed
@@ -4743,6 +4743,79 @@ jobs:
           if not changed:
               print("Official SUSFS 源码兼容修复无需修改。")
           PY
+
+      - name: 修复 ksu_late_loaded 未定义
+        if: inputs.ksu_variant == 'Official' && inputs.enable_susfs
+        working-directory: ${{ env.KERNEL_ROOT }}
+        run: |
+          set -euo pipefail
+          KSU_DIR="common/drivers/kernelsu"
+          if [ ! -d "$KSU_DIR" ]; then
+            echo "未找到 $KSU_DIR，跳过 ksu_late_loaded 修复"
+            exit 0
+          fi
+
+          # 如果没有引用，跳过
+          if ! grep -Rq 'ksu_late_loaded' "$KSU_DIR"; then
+            echo "未引用 ksu_late_loaded，跳过"
+            exit 0
+          fi
+
+          # 只认“带初始化的实际定义”，extern 声明不算
+          if grep -RE '^[[:space:]]*(static[[:space:]]+)?bool[[:space:]]+ksu_late_loaded[[:space:]]*=' "$KSU_DIR" >/dev/null 2>&1; then
+            echo "ksu_late_loaded 实际定义已存在，跳过"
+            exit 0
+          fi
+
+          DISPATCH_C="$KSU_DIR/supercall/dispatch.c"
+          if [ ! -f "$DISPATCH_C" ]; then
+            echo "::error::未找到 $DISPATCH_C"
+            exit 1
+          fi
+
+          # 移除可能存在的 extern 声明，避免重复
+          sed -i '/^[[:space:]]*extern[[:space:]]\+bool[[:space:]]\+ksu_late_loaded[[:space:]]*;/d' "$DISPATCH_C"
+
+          # 在文件末尾添加全局定义
+          echo 'bool ksu_late_loaded __read_mostly = false;' >> "$DISPATCH_C"
+          echo "已在 $DISPATCH_C 末尾添加 ksu_late_loaded 定义"
+
+      - name: 补齐 Official SUSFS post_execveat 钩子
+        if: inputs.ksu_variant == 'Official' && inputs.enable_susfs
+        working-directory: ${{ env.KERNEL_ROOT }}
+        run: |
+          set -euo pipefail
+          SUCOMPAT_C="common/drivers/kernelsu/feature/sucompat.c"
+          if [ ! -f "$SUCOMPAT_C" ]; then
+            echo "::error::未找到 $SUCOMPAT_C"
+            exit 1
+          fi
+          if grep -qF 'ksu_handle_post_execveat_sucompat' "$SUCOMPAT_C"; then
+            echo "ksu_handle_post_execveat_sucompat 已存在，跳过"
+            exit 0
+          fi
+          {
+            echo ""
+            echo "/* ABK: SUSFS fs/exec.c expects this post-execveat hook. */"
+            echo "int ksu_handle_post_execveat_sucompat(int *fd, struct filename **filename_ptr,"
+            echo "                                      void *argv, void *envp, int *flags, int *retval)"
+            echo "{"
+            echo "    (void)retval;"
+            echo "    return ksu_handle_execveat_sucompat(fd, filename_ptr, argv, envp, flags);"
+            echo "}"
+          } >> "$SUCOMPAT_C"
+
+          SUCOMPAT_H="common/drivers/kernelsu/feature/sucompat.h"
+          if [ -f "$SUCOMPAT_H" ] && ! grep -qF 'ksu_handle_post_execveat_sucompat' "$SUCOMPAT_H"; then
+            {
+              echo ""
+              echo "int ksu_handle_post_execveat_sucompat(int *fd, struct filename **filename_ptr,"
+              echo "                                      void *argv, void *envp, int *flags, int *retval);"
+            } >> "$SUCOMPAT_H"
+            echo "已补齐声明到 $SUCOMPAT_H"
+          fi
+
+          echo "已补齐 ksu_handle_post_execveat_sucompat 到 $SUCOMPAT_C"
 
       - name: 修复 Official SUSFS 6.1-6.12 SELinux 导出
         if: inputs.ksu_variant == 'Official' && inputs.enable_susfs && (inputs.kernel_version == '6.1' || inputs.kernel_version == '6.6' || inputs.kernel_version == '6.12')
